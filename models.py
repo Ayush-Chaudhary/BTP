@@ -1,14 +1,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from probabilities import get_probs, calc_p12
 
 # create an environment for the agent to interact with
 class env(object):
-    def __init__(self, mean, std):
-        if len(mean)!=len(std):
-            raise ValueError('mean and std must have the same length')
-        self.mean = mean
-        self.std = std
-        self.k_arms = len(mean)
+    def __init__(self, arms, chng = False, chng_arm = 0):
+        self.mean = [i+1 for i in range(arms, 0, -1)]
+        self.std = [1 for i in range(arms)]
+        if chng:
+            self.mean[chng_arm] = max(self.mean)+1
+        self.k_arms = arms
     
     def pull(self, arm):
         if arm not in range(self.k_arms):
@@ -18,16 +19,37 @@ class env(object):
 
 # config
 class config():
-    arms = 16
-    mean_dist = [i+1 for i in range(arms)]
+    arms = 32
+    mean_dist = [i+1 for i in range(arms, 0, -1)]
     std = [1 for i in range(arms)]
-    time = 2**13
+    time = 2**11
     chng_arm = 2
-    # chng_time = np.random.randint(0, time)
-    # chng_time = 2**2
+    chng_time = 10
     new_mean = max(mean_dist) + 1
-    new_mean_dist = [i+1 for i in range(arms)]
+    new_mean_dist = [i+1 for i in range(arms, 0, -1)]
     new_mean_dist[chng_arm] = new_mean
+    a, rs =arms, -1
+    while a>1:
+        a1, a2 = a, a//2
+        if chng_arm>a2 and chng_arm<=a1: 
+            break
+        else : 
+            rs+=1
+            a = a2
+    times=[0,0]
+    t = 0
+    best_arms = arms
+    for i in range(int(np.log2(arms))):
+        times[0]=t
+        r_time = int(time/(np.log2(arms)*best_arms))
+        for j in range(int(r_time)):
+            for k in range(int(best_arms)):
+                t+=1
+        best_arms = int(best_arms/2)
+        times[1]=t
+        if times[0]<=chng_time and times[1]>=chng_time: 
+            rc=i
+            break
 
 
 # function to plot history
@@ -107,30 +129,34 @@ class EpsilonGreedyAgent(object):
 
 # Sequential Halving with option to change mean of one arm
 class SeqHalf_with_change(object):
-    def __init__(self, config, chng_time, change = True):
+    def __init__(self, config, change = True):
         self.config = config
+        self.arms = config.arms
         self.time = config.time
-        self.chng_arm = config.chng_arm
-        self.chng_time = chng_time
+        # self.chng_arm = config.chng_arm
+        # self.chng_time = config.chng_time
         self.mean_dist = config.mean_dist
         self.new_mean_dist = config.new_mean_dist
         self.std = config.std
         self.change = change
 
-    def act(self):
-        env1 = env(self.mean_dist, self.std)
-        env2 = env(self.new_mean_dist, self.std)
+    def act(self, chng_arm, chng_time):
+        env1 = env(self.arms, chng = False)
+        env2 = env(self.arms, chng = True, chng_arm = chng_arm)
         arms = env1.k_arms
         change = self.change
         rounds = int(np.log2(arms))
         best_arms = np.array([i for i in range(arms)])
         arm_counts = np.zeros(arms)
-        chng_time = self.chng_time
+        chng_time = chng_time
         t=0
 
+        probs = {'p11':[], 'p12':0, 'p13':[], 'p21':[], 'p22':[], 'p23':0, 'p24':[]}
         rewards = []
         cum_rewards = []
+        times = [0,0]
         for i in range(rounds):
+            times[0]=t
             arm_rewards = np.zeros(arms)
             r_time = self.time//(rounds*len(best_arms))
             for j in range(r_time):
@@ -145,19 +171,40 @@ class SeqHalf_with_change(object):
                     rewards.append(reward)
                     cum_rewards.append(sum(rewards)/ len(rewards))
             arm_rewards = arm_rewards/r_time
+            times[1]=t
             # select best half arms
             best_arms = np.argsort(arm_rewards)[::-1][:len(best_arms)//2]
-        print(best_arms)
-        return {"arms": arm_counts, "rewards": rewards, "cum_rewards": cum_rewards}
+            # get_probs(config, best_arms, times, chng_time, t, probs, i)
+        # print('Best arm is', best_arms[0])
+        return {"arms": arm_counts, "rewards": rewards, "cum_rewards": cum_rewards, "probs": probs, 'best_arm': best_arms[0]}
 
+    def loop(self):
+        arms = self.config.arms
+        time = self.config.time
+        arm_list = [i for i in range(arms)]
+        tim = []
+        for i in range(arms):
+            if i%4==0:print(i)
+            j=time
+            run = True
+            while run and j>=0:
+                hist = self.act(i, j)
+                # print(j)
+                if hist['best_arm'] >0:
+                    tim.append(j)
+                    run = False
+                j-=1
+            if j<0: tim.append(time-1)
+        print(tim)
+        return tim, arm_list                 
 
 # Pure exploration where we change the mean of one arm
 class PureExploration(object):
-    def __init__(self, config, chng_time, change = True):
+    def __init__(self, config, change = True):
         self.config = config
         self.time = config.time
         self.chng_arm = config.chng_arm
-        self.chng_time = chng_time
+        self.chng_time = config.chng_time
         self.mean_dist = config.mean_dist
         self.new_mean_dist = config.new_mean_dist
         self.std = config.std
@@ -187,5 +234,6 @@ class PureExploration(object):
                 rewards.append(reward)
                 cum_rewards.append(sum(rewards)/ len(rewards))
                 arm_rewards[k] += reward
+        prob = calc_p12(config, arm_counts, 0, self.time, chng_time)
         print('Best arm is', np.argmax(arm_rewards))
-        return {"arms": arm_counts, "rewards": rewards, "cum_rewards": cum_rewards}
+        return {"arms": arm_counts, "rewards": rewards, "cum_rewards": cum_rewards, "probs": prob}
