@@ -21,7 +21,7 @@ def get_probs(config, best_arms, times, chng_time, t, probs, round):
     if rc<=rs:
         if t<chng_time:
             # print('1')
-            probs['p11'].append(calc_p11(config, best_arms))
+            probs['p11'].append(min(1,calc_p11(config, best_arms)))
         elif t>chng_time and probs['p12']==0:
             # print('2')
             probs['p12'] = calc_p12(config, best_arms, times[0], times[1], chng_time)
@@ -29,10 +29,10 @@ def get_probs(config, best_arms, times, chng_time, t, probs, round):
             # print('3')
             probs['p13'].append(calc_p13(config, best_arms))
     else:
-        if t<chng_time and round<rs:
+        if t<chng_time and round<=rs:
             # print('4')
-            probs['p21'].append(calc_p11(config, best_arms))
-        elif t < chng_time and round>=rs:
+            probs['p21'].append(min(1,calc_p11(config, best_arms)))
+        elif t < chng_time and round>rs:
             # print('5')
             probs['p22'].append(1)
         elif round==rc:
@@ -53,7 +53,9 @@ def calc_p11(config, best_arm):
         if m1[i]<m1[k]:
             ret += expo_nc(config.time, m1[i], m1[k], rounds, sr)
             j+=1
-    ret += k-1
+    if k in best_arm:        
+        ret +=sr-j-1
+    else: ret +=sr-j
     # print(sr-j-1)
     ret *= 2/sr
     return ret

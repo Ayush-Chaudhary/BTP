@@ -20,14 +20,14 @@ class env(object):
 # config
 class config():
     arms = 32
-    mean_dist = [i+1 for i in range(arms, 0, -1)]
-    std = [1 for i in range(arms)]
+    # mean_dist = [i+1 for i in range(arms, 0, -1)]
+    # std = [1 for i in range(arms)]
     time = 2**11
     chng_arm = 2
     chng_time = 10
-    new_mean = max(mean_dist) + 1
-    new_mean_dist = [i+1 for i in range(arms, 0, -1)]
-    new_mean_dist[chng_arm] = new_mean
+    # new_mean = max(mean_dist) + 1
+    # new_mean_dist = [i+1 for i in range(arms, 0, -1)]
+    # new_mean_dist[chng_arm] = new_mean
     a, rs =arms, -1
     while a>1:
         a1, a2 = a, a//2
@@ -135,9 +135,9 @@ class SeqHalf_with_change(object):
         self.time = config.time
         # self.chng_arm = config.chng_arm
         # self.chng_time = config.chng_time
-        self.mean_dist = config.mean_dist
-        self.new_mean_dist = config.new_mean_dist
-        self.std = config.std
+        # self.mean_dist = config.mean_dist
+        # self.new_mean_dist = config.new_mean_dist
+        # self.std = config.std
         self.change = change
 
     def act(self, chng_arm, chng_time):
@@ -178,7 +178,18 @@ class SeqHalf_with_change(object):
         # print('Best arm is', best_arms[0])
         return {"arms": arm_counts, "rewards": rewards, "cum_rewards": cum_rewards, "probs": probs, 'best_arm': best_arms[0]}
 
-    def loop(self):
+    def loop(self, top_percent, iters):
+        p = 0
+        for i in range(iters):
+            chng_time = np.random.randint(0,self.time)
+            chng_arm = np.random.randint(0,int(self.arms*top_percent))
+            best_arm = self.act(chng_arm, chng_time)
+            # print(best_arm['best_arm'])
+            if best_arm['best_arm'] == chng_arm: p+=1
+        return p/iters
+
+    # loop over changed arms to find min time of change
+    def loop1(self):
         arms = self.config.arms
         time = self.config.time
         arm_list = [i for i in range(arms)]
@@ -237,3 +248,94 @@ class PureExploration(object):
         prob = calc_p12(config, arm_counts, 0, self.time, chng_time)
         print('Best arm is', np.argmax(arm_rewards))
         return {"arms": arm_counts, "rewards": rewards, "cum_rewards": cum_rewards, "probs": prob}
+
+
+class analysis(object):
+    def __init__(self, config, change = True):
+        self.config = config
+        self.arms = config.arms
+        self.time = config.time
+        self.change = change
+
+    def act_seq(self, chng_arm, chng_time):
+        env1 = env(self.arms, chng = False)
+        env2 = env(self.arms, chng = True, chng_arm = chng_arm)
+        arms = env1.k_arms
+        change = self.change
+        rounds = int(np.log2(arms))
+        best_arms = np.array([i for i in range(arms)])
+        t=0
+
+        for i in range(rounds):
+            arm_rewards = np.zeros(arms)
+            r_time = self.time//(rounds*len(best_arms))
+            for j in range(r_time):
+                for k in best_arms:
+                    if t < chng_time: reward = env1.pull(k)
+                    else:
+                        if change: reward = env2.pull(k)
+                        else: reward = env1.pull(k)
+                    t+=1
+                    arm_rewards[k] += reward
+            arm_rewards = arm_rewards/r_time
+            best_arms = np.argsort(arm_rewards)[::-1][:len(best_arms)//2]
+        return best_arms[0]
+
+    def act_exp(self, chng_arm, chng_time):
+        env1 = env(self.arms, chng = False)
+        env2 = env(self.arms, chng = True, chng_arm = chng_arm)
+        arms = env1.k_arms
+        change = self.change
+        arm_rewards = np.zeros(arms)
+        t=0
+
+        r_time = self.time//(arms)
+        for j in range(r_time):
+            for k in range(arms):
+                if t < chng_time: reward = env1.pull(k)
+                else:
+                    if change: reward = env2.pull(k)
+                    else: reward = env1.pull(k)
+                t+=1
+                arm_rewards[k] += reward
+        # print('Best arm is', np.argmax(arm_rewards))
+        return np.argmax(arm_rewards)
+
+    def mix(self, chng_arm, chng_time):
+        env1 = env(self.arms, chng = False)
+        env2 = env(self.arms, chng = True, chng_arm = chng_arm)
+        arms = env1.k_arms
+        change = self.change
+        rounds = int(np.log2(arms))
+        best_arms = np.array([i for i in range(arms)])
+        t=0
+
+        for i in range(rounds):
+            arm_rewards = np.zeros(arms)
+            r_time = self.time//(rounds*len(best_arms))
+            for j in range(r_time):
+                for k in best_arms:
+                    if t < chng_time: reward = env1.pull(k)
+                    else:
+                        if change: reward = env2.pull(k)
+                        else: reward = env1.pull(k)
+                    t+=1
+                    arm_rewards[k] += reward
+            arm_rewards = arm_rewards/r_time
+            if t<chng_time: best_arms = np.argsort(arm_rewards)[::-1][:len(best_arms)//2]
+        best_arms = np.argsort(arm_rewards)[::-1]
+        return best_arms[0]
+
+    def loop(self, top_percent, iters):
+        p1, p2, p3 = 0, 0, 0
+        for i in range(iters):
+            chng_time = np.random.randint(0,self.time)
+            chng_arm = np.random.randint(0,int(self.arms*top_percent))
+            # best_arm1 = self.act_seq(chng_arm, chng_time)
+            # best_arm2 = self.act_exp(chng_arm, chng_time)
+            best_arm3 = self.mix(chng_arm, chng_time)
+            # print(best_arm['best_arm'])
+            # if best_arm1 == chng_arm: p1+=1
+            # if best_arm2 == chng_arm: p2+=1
+            if best_arm3 == chng_arm: p3+=1
+        return {"seq_half": p1/iters, "pure_exp": p2/iters, "mix": p3/iters}
